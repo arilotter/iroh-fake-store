@@ -702,3 +702,202 @@ async fn test_dynamic_blob_addition() -> TestResult<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_tag_create_and_list() -> TestResult<()> {
+    let store = FakeStore::new([1024]);
+    let hash = compute_hash_for_strategy(1024, DataStrategy::Zeros);
+
+    // create a tag
+    let tag = store
+        .tags()
+        .create(HashAndFormat {
+            hash,
+            format: BlobFormat::Raw,
+        })
+        .await?;
+
+    // list tags should include our new tag
+    let mut tags_stream = store.tags().list().await?;
+    let mut tags = Vec::new();
+    while let Some(tag_info) = tags_stream.next().await {
+        tags.push(tag_info?);
+    }
+
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name, tag);
+    assert_eq!(tags[0].hash, hash);
+    assert_eq!(tags[0].format, BlobFormat::Raw);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_tag_set() -> TestResult<()> {
+    let store = FakeStore::new([1024, 2048]);
+    let hashes = store.blobs().list().hashes().await?;
+    let hash1 = hashes[0];
+    let hash2 = hashes[1];
+
+    // create a tag
+    let tag = store
+        .tags()
+        .create(HashAndFormat {
+            hash: hash1,
+            format: BlobFormat::Raw,
+        })
+        .await?;
+
+    // set it to point to a different hash
+    store
+        .tags()
+        .set(
+            tag.clone(),
+            HashAndFormat {
+                hash: hash2,
+                format: BlobFormat::Raw,
+            },
+        )
+        .await?;
+
+    // list tags to verify it points to hash2 now
+    let mut tags_stream = store.tags().list().await?;
+    let mut tags = Vec::new();
+    while let Some(tag_info) = tags_stream.next().await {
+        tags.push(tag_info?);
+    }
+
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name, tag);
+    assert_eq!(tags[0].hash, hash2);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_tag_rename() -> TestResult<()> {
+    let store = FakeStore::new([1024]);
+    let hash = compute_hash_for_strategy(1024, DataStrategy::Zeros);
+
+    // create a tag
+    let tag = store
+        .tags()
+        .create(HashAndFormat {
+            hash,
+            format: BlobFormat::Raw,
+        })
+        .await?;
+
+    // rename it
+    let new_name = api::Tag::from("renamed-tag");
+    store.tags().rename(tag.clone(), new_name.clone()).await?;
+
+    // list tags to verify rename
+    let mut tags_stream = store.tags().list().await?;
+    let mut tags = Vec::new();
+    while let Some(tag_info) = tags_stream.next().await {
+        tags.push(tag_info?);
+    }
+
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name, new_name);
+    assert_eq!(tags[0].hash, hash);
+
+    // old tag name should not exist
+    assert!(!tags.iter().any(|t| t.name == tag));
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_tag_delete() -> TestResult<()> {
+    let store = FakeStore::new([1024]);
+    let hash = compute_hash_for_strategy(1024, DataStrategy::Zeros);
+
+    // create two tags
+    let tag1 = store
+        .tags()
+        .create(HashAndFormat {
+            hash,
+            format: BlobFormat::Raw,
+        })
+        .await?;
+
+    let tag2 = store
+        .tags()
+        .create(HashAndFormat {
+            hash,
+            format: BlobFormat::Raw,
+        })
+        .await?;
+
+    // verify we have 2 tags
+    let mut tags_stream = store.tags().list().await?;
+    let mut tags = Vec::new();
+    while let Some(tag_info) = tags_stream.next().await {
+        tags.push(tag_info?);
+    }
+    assert_eq!(tags.len(), 2);
+
+    // delete one tag by name
+    store.tags().delete(tag1.clone()).await?;
+
+    // verify we have 1 tag left
+    let mut tags_stream = store.tags().list().await?;
+    let mut tags = Vec::new();
+    while let Some(tag_info) = tags_stream.next().await {
+        tags.push(tag_info?);
+    }
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].name, tag2);
+
+    // delete the other
+    store.tags().delete(tag2.clone()).await?;
+
+    // verify empty
+    let mut tags_stream = store.tags().list().await?;
+    let mut tags = Vec::new();
+    while let Some(tag_info) = tags_stream.next().await {
+        tags.push(tag_info?);
+    }
+    assert_eq!(tags.len(), 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_tag_multiple_tags_same_hash() -> TestResult<()> {
+    let store = FakeStore::new([1024]);
+    let hash = compute_hash_for_strategy(1024, DataStrategy::Zeros);
+
+    // create multiple tags for same hash
+    let tag1 = store
+        .tags()
+        .create(HashAndFormat {
+            hash,
+            format: BlobFormat::Raw,
+        })
+        .await?;
+
+    let tag2 = store
+        .tags()
+        .create(HashAndFormat {
+            hash,
+            format: BlobFormat::Raw,
+        })
+        .await?;
+
+    // verify both exist
+    let mut tags_stream = store.tags().list().await?;
+    let mut tags = Vec::new();
+    while let Some(tag_info) = tags_stream.next().await {
+        tags.push(tag_info?);
+    }
+    assert_eq!(tags.len(), 2);
+
+    let tag_names: Vec<_> = tags.iter().map(|t| &t.name).collect();
+    assert!(tag_names.contains(&&tag1));
+    assert!(tag_names.contains(&&tag2));
+
+    Ok(())
+}

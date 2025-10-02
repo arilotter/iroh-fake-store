@@ -130,12 +130,13 @@ let store = FakeStore::builder()
 ## api compatibility
 
 implements full `iroh-blobs` store protocol:
-- ✅ list blobs
-- ✅ status checks
-- ✅ observe operations
-- ✅ export (BAO, ranges, path)
-- ❌ import operations (returns error)
-- ❌ tag management (returns error)
+
+- list blobs
+- status checks
+- observe operations
+- export (BAO, ranges, path)
+- import (BAO, bytes, streams)
+- tag management (create, list, set, rename, delete)
 
 ## license
 

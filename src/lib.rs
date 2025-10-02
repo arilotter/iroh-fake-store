@@ -286,16 +286,38 @@ impl Actor {
                 cmd.tx.send(TempTag::new(cmd.inner.value, None)).await.ok();
             }
             Command::RenameTag(cmd) => {
-                cmd.tx
-                    .send(Err(io::Error::other("rename tag not supported").into()))
-                    .await
-                    .ok();
+                use api::proto::RenameTagRequest;
+                let RenameTagRequest { from, to } = cmd.inner;
+
+                if let Some(value) = self.tags.remove(&from) {
+                    self.tags.insert(to, value);
+                    cmd.tx.send(Ok(())).await.ok();
+                } else {
+                    cmd.tx
+                        .send(Err(io::Error::new(io::ErrorKind::NotFound, "tag not found").into()))
+                        .await
+                        .ok();
+                }
             }
             Command::DeleteTags(cmd) => {
-                cmd.tx
-                    .send(Err(io::Error::other("delete tags not supported").into()))
-                    .await
-                    .ok();
+                use api::proto::DeleteTagsRequest;
+                use std::ops::Bound;
+                let DeleteTagsRequest { from, to } = cmd.inner;
+
+                // delete all tags in the range [from, to)
+                let start: Bound<&api::Tag> = from.as_ref().map_or(Bound::Unbounded, |t| Bound::Included(t));
+                let end: Bound<&api::Tag> = to.as_ref().map_or(Bound::Unbounded, |t| Bound::Excluded(t));
+
+                let to_delete: Vec<_> = self
+                    .tags
+                    .range::<api::Tag, _>((start, end))
+                    .map(|(k, _)| k.clone())
+                    .collect();
+
+                for tag in to_delete {
+                    self.tags.remove(&tag);
+                }
+                cmd.tx.send(Ok(())).await.ok();
             }
             Command::DeleteBlobs(cmd) => {
                 cmd.tx
@@ -324,13 +346,24 @@ impl Actor {
                 cmd.tx.send(status).await.ok();
             }
             Command::ListTags(cmd) => {
-                cmd.tx.send(Vec::new()).await.ok();
+                use api::proto::TagInfo;
+                let tags: Vec<_> = self
+                    .tags
+                    .iter()
+                    .map(|(name, value)| Ok(TagInfo {
+                        name: name.clone(),
+                        hash: value.hash,
+                        format: value.format,
+                    }))
+                    .collect();
+                cmd.tx.send(tags).await.ok();
             }
             Command::SetTag(cmd) => {
-                cmd.tx
-                    .send(Err(io::Error::other("set tag not supported").into()))
-                    .await
-                    .ok();
+                use api::proto::SetTagRequest;
+                let SetTagRequest { name, value } = cmd.inner;
+
+                self.tags.insert(name, value);
+                cmd.tx.send(Ok(())).await.ok();
             }
             Command::ListTempTags(cmd) => {
                 cmd.tx.send(Vec::new()).await.ok();
